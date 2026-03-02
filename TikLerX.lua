@@ -22,7 +22,7 @@ local Camera = game:GetService("Workspace").CurrentCamera
 --// Variables
 
 local LocalPlayer = Players.LocalPlayer
-local Title = "Exunys Developer"
+local Title = "TikLerX Developer"
 local FileNames = {"Aimbot", "Configuration.json", "Drawing.json"}
 local Typing, Running, Animation, RequiredDistance, ServiceConnections = false, false, nil, 2000, {}
 
@@ -64,6 +64,19 @@ Environment.FOVSettings = {
 Environment.FOVCircle = Drawing.new("Circle")
 Environment.Locked = nil
 
+--// Chams Settings
+
+Environment.ChamsSettings = {
+	Enabled = false,
+	FillColor = Color3.fromRGB(255, 0, 0),
+	OutlineColor = Color3.fromRGB(255, 255, 255),
+	FillTransparency = 0.5,
+	OutlineTransparency = 0,
+	TeamCheck = false,
+}
+
+local ChamsHighlights = {}
+
 --// Core Functions
 
 local function Encode(Table)
@@ -95,7 +108,54 @@ local function SendNotification(TitleArg, DescriptionArg, DurationArg)
 	end
 end
 
---// Save / Load Settings
+--// Chams Functions
+
+local function CreateChams(player)
+	if player == LocalPlayer then return end
+	if ChamsHighlights[player] then return end
+
+	local highlight = Instance.new("Highlight")
+	highlight.FillColor = Environment.ChamsSettings.FillColor
+	highlight.OutlineColor = Environment.ChamsSettings.OutlineColor
+	highlight.FillTransparency = Environment.ChamsSettings.FillTransparency
+	highlight.OutlineTransparency = Environment.ChamsSettings.OutlineTransparency
+	highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	highlight.Enabled = Environment.ChamsSettings.Enabled
+
+	if player.Character then
+		highlight.Parent = player.Character
+	end
+
+	ChamsHighlights[player] = highlight
+
+	player.CharacterAdded:Connect(function(char)
+		highlight.Parent = char
+	end)
+end
+
+local function RemoveChams(player)
+	if ChamsHighlights[player] then
+		ChamsHighlights[player]:Destroy()
+		ChamsHighlights[player] = nil
+	end
+end
+
+local function UpdateAllChams()
+	for player, highlight in pairs(ChamsHighlights) do
+		local isTeammate = player.Team == LocalPlayer.Team
+		if Environment.ChamsSettings.TeamCheck and isTeammate then
+			highlight.Enabled = false
+		else
+			highlight.Enabled = Environment.ChamsSettings.Enabled
+		end
+		highlight.FillColor = Environment.ChamsSettings.FillColor
+		highlight.OutlineColor = Environment.ChamsSettings.OutlineColor
+		highlight.FillTransparency = Environment.ChamsSettings.FillTransparency
+		highlight.OutlineTransparency = Environment.ChamsSettings.OutlineTransparency
+	end
+end
+
+
 
 local function SaveSettings()
 	if Environment.Settings.SaveSettings then
@@ -184,9 +244,9 @@ end
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
 local Window = Rayfield:CreateWindow({
-	Name = "TikLerX's Aimbot",
+	Name = "TikLerX's script",
 	Icon = 0,
-	LoadingTitle = "TikLerX's Aimbot",
+	LoadingTitle = "TikLerX's script",
 	LoadingSubtitle = "Loading GUI...",
 	Theme = "Default",
 	DisableRayfieldPrompts = false,
@@ -249,15 +309,6 @@ AimbotTab:CreateToggle({
 	end,
 })
 
-AimbotTab:CreateToggle({
-	Name = "Third Person Mode",
-	CurrentValue = Environment.Settings.ThirdPerson,
-	Flag = "ThirdPerson",
-	Callback = function(Value)
-		Environment.Settings.ThirdPerson = Value
-	end,
-})
-
 AimbotTab:CreateSlider({
 	Name = "Sensitivity (0 = instant)",
 	Range = {0, 2},
@@ -267,18 +318,6 @@ AimbotTab:CreateSlider({
 	Flag = "Sensitivity",
 	Callback = function(Value)
 		Environment.Settings.Sensitivity = Value
-	end,
-})
-
-AimbotTab:CreateSlider({
-	Name = "Third Person Sensitivity",
-	Range = {1, 5},
-	Increment = 0.1,
-	Suffix = "",
-	CurrentValue = Environment.Settings.ThirdPersonSensitivity,
-	Flag = "ThirdPersonSensitivity",
-	Callback = function(Value)
-		Environment.Settings.ThirdPersonSensitivity = Value
 	end,
 })
 
@@ -383,6 +422,152 @@ FOVTab:CreateSlider({
 	end,
 })
 
+--// ─── TAB: Chams (ESP) ───────────────────────────────────────
+
+local ChamsTab = Window:CreateTab("Chams", 4483362458)
+
+ChamsTab:CreateToggle({
+	Name = "Enable Chams",
+	CurrentValue = Environment.ChamsSettings.Enabled,
+	Flag = "ChamsEnabled",
+	Callback = function(Value)
+		Environment.ChamsSettings.Enabled = Value
+		UpdateAllChams()
+	end,
+})
+
+ChamsTab:CreateToggle({
+	Name = "Team Check (hide teammates)",
+	CurrentValue = Environment.ChamsSettings.TeamCheck,
+	Flag = "ChamsTeamCheck",
+	Callback = function(Value)
+		Environment.ChamsSettings.TeamCheck = Value
+		UpdateAllChams()
+	end,
+})
+
+ChamsTab:CreateLabel("Fill Color")
+
+ChamsTab:CreateSlider({
+	Name = "Fill Red",
+	Range = {0, 255},
+	Increment = 1,
+	Suffix = "",
+	CurrentValue = 255,
+	Flag = "ChamsFillR",
+	Callback = function(Value)
+		local c = Environment.ChamsSettings.FillColor
+		Environment.ChamsSettings.FillColor = Color3.fromRGB(Value, c.G * 255, c.B * 255)
+		UpdateAllChams()
+	end,
+})
+
+ChamsTab:CreateSlider({
+	Name = "Fill Green",
+	Range = {0, 255},
+	Increment = 1,
+	Suffix = "",
+	CurrentValue = 0,
+	Flag = "ChamsFillG",
+	Callback = function(Value)
+		local c = Environment.ChamsSettings.FillColor
+		Environment.ChamsSettings.FillColor = Color3.fromRGB(c.R * 255, Value, c.B * 255)
+		UpdateAllChams()
+	end,
+})
+
+ChamsTab:CreateSlider({
+	Name = "Fill Blue",
+	Range = {0, 255},
+	Increment = 1,
+	Suffix = "",
+	CurrentValue = 0,
+	Flag = "ChamsFillB",
+	Callback = function(Value)
+		local c = Environment.ChamsSettings.FillColor
+		Environment.ChamsSettings.FillColor = Color3.fromRGB(c.R * 255, c.G * 255, Value)
+		UpdateAllChams()
+	end,
+})
+
+ChamsTab:CreateSlider({
+	Name = "Fill Transparency",
+	Range = {0, 100},
+	Increment = 1,
+	Suffix = "%",
+	CurrentValue = 50,
+	Flag = "ChamsFillTransparency",
+	Callback = function(Value)
+		Environment.ChamsSettings.FillTransparency = Value / 100
+		UpdateAllChams()
+	end,
+})
+
+ChamsTab:CreateLabel("Outline Color")
+
+ChamsTab:CreateSlider({
+	Name = "Outline Red",
+	Range = {0, 255},
+	Increment = 1,
+	Suffix = "",
+	CurrentValue = 255,
+	Flag = "ChamsOutlineR",
+	Callback = function(Value)
+		local c = Environment.ChamsSettings.OutlineColor
+		Environment.ChamsSettings.OutlineColor = Color3.fromRGB(Value, c.G * 255, c.B * 255)
+		UpdateAllChams()
+	end,
+})
+
+ChamsTab:CreateSlider({
+	Name = "Outline Green",
+	Range = {0, 255},
+	Increment = 1,
+	Suffix = "",
+	CurrentValue = 255,
+	Flag = "ChamsOutlineG",
+	Callback = function(Value)
+		local c = Environment.ChamsSettings.OutlineColor
+		Environment.ChamsSettings.OutlineColor = Color3.fromRGB(c.R * 255, Value, c.B * 255)
+		UpdateAllChams()
+	end,
+})
+
+ChamsTab:CreateSlider({
+	Name = "Outline Blue",
+	Range = {0, 255},
+	Increment = 1,
+	Suffix = "",
+	CurrentValue = 255,
+	Flag = "ChamsOutlineB",
+	Callback = function(Value)
+		local c = Environment.ChamsSettings.OutlineColor
+		Environment.ChamsSettings.OutlineColor = Color3.fromRGB(c.R * 255, c.G * 255, Value)
+		UpdateAllChams()
+	end,
+})
+
+ChamsTab:CreateSlider({
+	Name = "Outline Transparency",
+	Range = {0, 100},
+	Increment = 1,
+	Suffix = "%",
+	CurrentValue = 0,
+	Flag = "ChamsOutlineTransparency",
+	Callback = function(Value)
+		Environment.ChamsSettings.OutlineTransparency = Value / 100
+		UpdateAllChams()
+	end,
+})
+
+-- Init chams for existing players
+for _, player in ipairs(Players:GetPlayers()) do
+	CreateChams(player)
+end
+
+Players.PlayerAdded:Connect(CreateChams)
+Players.PlayerRemoving:Connect(RemoveChams)
+
 --// ─── TAB: Misc ─────────────────────────────────────────────
 
 local MiscTab = Window:CreateTab("Misc", 4483362458)
@@ -450,7 +635,9 @@ MiscTab:CreateButton({
 	end,
 })
 
-MiscTab:CreateLabel("Press K to show/hide this GUI")
+MiscTab:CreateLabel("Press CTRL to show/hide this GUI")
+
+--// ─── GUI Toggle with CTRL ─────────────────────────────────
 
 local GUIVisible = true
 
@@ -633,8 +820,3 @@ end
 --// Load
 
 Load()
-Rayfield:Notify({
-	Title = "Exunys Aimbot",
-	Content = "Script loaded! Press K to toggle GUI.",
-	Duration = 5,
-})
