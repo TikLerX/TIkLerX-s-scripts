@@ -187,8 +187,6 @@ local function sampleAnimation(track, animId, character)
 	local duration = track.Length > 0 and track.Length or 3
 	local sampleRate = 1 / 30
 
-	-- Ждём начала следующей петли (TimePosition прыгает назад к ~0)
-	-- чтобы начать захват ровно с t=0
 	local syncTimeout = duration + 1
 	local syncStart = tick()
 	local lastT = track.TimePosition
@@ -197,12 +195,10 @@ local function sampleAnimation(track, animId, character)
 	while tick() - syncStart < syncTimeout do
 		task.wait()
 		local t = track.TimePosition
-		-- Детектируем прыжок петли: время резко упало
 		if lastT > (duration * 0.8) and t < sampleRate * 2 then
 			synced = true
 			break
 		end
-		-- Или уже близко к 0 прямо сейчас
 		if t < sampleRate then
 			synced = true
 			break
@@ -216,7 +212,6 @@ local function sampleAnimation(track, animId, character)
 		print("⚠️ Sync timeout — capturing from current position")
 	end
 
-	-- Основной захват через RenderStepped (точное время без дрейфа task.wait)
 	local keyframesData = {}
 	local done = false
 	local prevT = -1
@@ -232,11 +227,9 @@ local function sampleAnimation(track, animId, character)
 
 		local t = track.TimePosition
 
-		-- Детектируем переход петли
 		if prevT >= 0 and t < prevT - (duration * 0.5) then
 			loopCount = loopCount + 1
 			if loopCount >= 1 then
-				-- Одна полная петля захвачена — завершаем
 				done = true
 				return
 			end
@@ -250,7 +243,6 @@ local function sampleAnimation(track, animId, character)
 				local ok, cf = pcall(function() return joint.Transform end)
 				poses[partName] = ok and cf or CFrame.new()
 			end
-			-- Запоминаем первые позы для финального кадра
 			if not firstPoses and t < sampleRate * 2 then
 				firstPoses = poses
 			end
@@ -258,7 +250,6 @@ local function sampleAnimation(track, animId, character)
 		end
 	end)
 
-	-- Ждём завершения
 	local waitStart = tick()
 	while not done and tick() - waitStart < duration * 2 + 2 do
 		task.wait(0.05)
@@ -270,21 +261,17 @@ local function sampleAnimation(track, animId, character)
 		return nil
 	end
 
-	-- Нормализуем: первый кадр = t=0
 	local offset = keyframesData[1].time
 	for _, kf in ipairs(keyframesData) do
 		kf.time = math.max(0, kf.time - offset)
 	end
 
-	-- Финальный кадр на duration = те же позы что и t=0
-	-- Это гарантирует бесшовную петлю: конец == начало
 	local loopStartPoses = firstPoses or keyframesData[1].poses
 	table.insert(keyframesData, {
 		time = duration,
 		poses = loopStartPoses
 	})
 
-	-- Дедупликация по времени
 	local deduped = {}
 	local lastTime = -1
 	for _, kf in ipairs(keyframesData) do
