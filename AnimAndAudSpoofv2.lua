@@ -65,7 +65,6 @@ local currentSoundId = nil
 local currentAudioPlayer = nil
 local hookedSounds = {}
 
-
 local ignoredAnimations = { "walk", "run", "idle", "jump", "fall", "swim", "sit", "climb" }
 
 local function isIgnoredAnimation(track)
@@ -183,29 +182,120 @@ local function sampleAnimation(track, animId, character)
 		print("❌ No Motor6D joints found")
 		return nil
 	end
-	print("Root: " .. rootName .. " | Joints: " .. jointCount .. " | Sampling...")
-	task.wait(0.05)
-	local keyframesData = {}
+	print("Root: " .. rootName .. " | Joints: " .. jointCount .. " | Waiting for loop start...")
+
 	local duration = track.Length > 0 and track.Length or 3
 	local sampleRate = 1 / 30
-	local elapsed = 0
-	while elapsed <= duration and track.IsPlaying do
-		local poses = {}
-		poses[rootName] = CFrame.new()
-		for partName, joint in pairs(joints) do
-			local ok, cf = pcall(function() return joint.Transform end)
-			poses[partName] = ok and cf or CFrame.new()
+
+	-- Ждём начала следующей петли (TimePosition прыгает назад к ~0)
+	-- чтобы начать захват ровно с t=0
+	local syncTimeout = duration + 1
+	local syncStart = tick()
+	local lastT = track.TimePosition
+	local synced = false
+
+	while tick() - syncStart < syncTimeout do
+		task.wait()
+		local t = track.TimePosition
+		-- Детектируем прыжок петли: время резко упало
+		if lastT > (duration * 0.8) and t < sampleRate * 2 then
+			synced = true
+			break
 		end
-		table.insert(keyframesData, { time = elapsed, poses = poses })
-		elapsed = elapsed + sampleRate
-		task.wait(sampleRate)
+		-- Или уже близко к 0 прямо сейчас
+		if t < sampleRate then
+			synced = true
+			break
+		end
+		lastT = t
 	end
+
+	if synced then
+		print("✅ Synced to loop start")
+	else
+		print("⚠️ Sync timeout — capturing from current position")
+	end
+
+	-- Основной захват через RenderStepped (точное время без дрейфа task.wait)
+	local keyframesData = {}
+	local done = false
+	local prevT = -1
+	local loopCount = 0
+	local firstPoses = nil
+
+	local connection = game:GetService("RunService").RenderStepped:Connect(function()
+		if done then return end
+		if not track.IsPlaying then
+			done = true
+			return
+		end
+
+		local t = track.TimePosition
+
+		-- Детектируем переход петли
+		if prevT >= 0 and t < prevT - (duration * 0.5) then
+			loopCount = loopCount + 1
+			if loopCount >= 1 then
+				-- Одна полная петля захвачена — завершаем
+				done = true
+				return
+			end
+		end
+		prevT = t
+
+		if loopCount == 0 then
+			local poses = {}
+			poses[rootName] = CFrame.new()
+			for partName, joint in pairs(joints) do
+				local ok, cf = pcall(function() return joint.Transform end)
+				poses[partName] = ok and cf or CFrame.new()
+			end
+			-- Запоминаем первые позы для финального кадра
+			if not firstPoses and t < sampleRate * 2 then
+				firstPoses = poses
+			end
+			table.insert(keyframesData, { time = t, poses = poses })
+		end
+	end)
+
+	-- Ждём завершения
+	local waitStart = tick()
+	while not done and tick() - waitStart < duration * 2 + 2 do
+		task.wait(0.05)
+	end
+	connection:Disconnect()
+
 	if #keyframesData == 0 then
 		print("❌ No keyframes captured")
 		return nil
 	end
-	print("✅ Captured " .. #keyframesData .. " keyframes")
-	return keyframesData, id, jointChildren, rootName
+
+	-- Нормализуем: первый кадр = t=0
+	local offset = keyframesData[1].time
+	for _, kf in ipairs(keyframesData) do
+		kf.time = math.max(0, kf.time - offset)
+	end
+
+	-- Финальный кадр на duration = те же позы что и t=0
+	-- Это гарантирует бесшовную петлю: конец == начало
+	local loopStartPoses = firstPoses or keyframesData[1].poses
+	table.insert(keyframesData, {
+		time = duration,
+		poses = loopStartPoses
+	})
+
+	-- Дедупликация по времени
+	local deduped = {}
+	local lastTime = -1
+	for _, kf in ipairs(keyframesData) do
+		if kf.time - lastTime > 0.001 then
+			table.insert(deduped, kf)
+			lastTime = kf.time
+		end
+	end
+
+	print("✅ Captured " .. #deduped .. " keyframes (loop-synced, seamless)")
+	return deduped, id, jointChildren, rootName
 end
 
 local function downloadAnimation(animId, track)
@@ -415,7 +505,6 @@ local function hookCharacter(character, trackAnimations)
 	end
 	hookContainer(character)
 end
-
 
 task.spawn(function() hookContainer(game.Workspace) end)
 task.spawn(function()
